@@ -2,31 +2,17 @@ import json
 import os
 
 CONFIG_FILE = "config.json"
-
-# 기본 설정값
-DEFAULT_CONFIG = {
-    "GOOGLE_API_KEY": "",
-    "NAVER_ACCOUNTS": {}
-}
+DEFAULT_CONFIG = {"GOOGLE_API_KEY": "", "NAVER_ACCOUNTS": {}}
 
 def load_config():
-    """설정 파일(JSON)을 읽어옵니다. 없으면 기본값 반환."""
-    if not os.path.exists(CONFIG_FILE):
-        return DEFAULT_CONFIG
-    
+    if not os.path.exists(CONFIG_FILE): return DEFAULT_CONFIG
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"설정 로드 실패: {e}")
-        return DEFAULT_CONFIG
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f: return json.load(f)
+    except: return DEFAULT_CONFIG
 
-def save_config(config_data):
-    """설정 데이터를 파일로 영구 저장합니다."""
+def save_config(data):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, ensure_ascii=False, indent=4)
+            json.dump(data, f, ensure_ascii=False, indent=4)
         return True
-    except Exception as e:
-        print(f"설정 저장 실패: {e}")
-        return False
+    except: return False
