@@ -42,7 +42,7 @@ if 'current_role' not in st.session_state:
 # [UI] 사이드바: 통합 제어 센터
 # ==========================================
 with st.sidebar:
-    st.header(⚙️ 시스템 통제실")
+    st.header("⚙️ 시스템 통제실") # <--- [수정됨] 따옴표 추가 완료
     st.markdown("---")
     
     # 1. Google Brain 설정
