@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
 }
 
 def load_config():
-    """설정 파일(JSON)을 읽어옵니다."""
+    """설정 파일(JSON)을 읽어옵니다. 없으면 기본값 반환."""
     if not os.path.exists(CONFIG_FILE):
         return DEFAULT_CONFIG
     
