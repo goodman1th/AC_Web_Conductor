@@ -4,11 +4,11 @@ import google.generativeai as genai
 from io import BytesIO
 import pandas as pd
 
-# 모듈 연결
+# 모듈 연결 (config가 없으면 에러 방지)
 try:
     from config import load_config, save_config
 except ImportError:
-    st.error("🚨 'config.py' 파일이 없습니다.")
+    st.error("🚨 'config.py' 파일이 없습니다. 파일이 누락되지 않았는지 확인해주세요.")
     st.stop()
 
 from utils import read_uploaded_file, get_system_prompt, analyze_zombie_products, generate_kill_list_filename
@@ -31,6 +31,7 @@ if 'master_config' not in st.session_state:
     st.session_state.master_config = load_config()
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'current_role' not in st.session_state: st.session_state.current_role = "AC김시율 (Director)"
+if 'logs' not in st.session_state: st.session_state.logs = []
 
 # ==========================================
 # [UI] 사이드바
@@ -147,12 +148,13 @@ with tab4:
                 st.markdown("##### 📥 다운로드 옵션")
                 
                 all_cols = zombies.columns.tolist()
-                # 기본적으로 선택되어 있을 컬럼들 (너무 많으면 복잡하니까 중요 항목만)
+                # 기본적으로 선택되어 있을 컬럼들 (너무 많으면 복잡하니까 중요 항목만 자동 선택)
                 default_cols = [c for c in all_cols if any(k in str(c) for k in ['ID', '키워드', '광고비', '노출', '클릭', '매출'])]
                 if not default_cols: default_cols = all_cols # 못 찾으면 전체 선택
                 
+                # 멀티 셀렉트 위젯
                 selected_cols = st.multiselect(
-                    "💾 파일에 저장할 항목을 선택하세요:",
+                    "💾 파일에 저장할 항목을 골라주세요:",
                     options=all_cols,
                     default=default_cols
                 )
@@ -163,7 +165,7 @@ with tab4:
                     # 선택한 컬럼만 필터링
                     df_final = zombies[selected_cols]
                     
-                    # 미리보기
+                    # 미리보기 제공
                     st.caption(f"미리보기 ({len(selected_cols)}개 열 선택됨)")
                     st.dataframe(df_final.head())
                     
