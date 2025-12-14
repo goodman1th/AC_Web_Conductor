@@ -38,11 +38,20 @@ def get_system_prompt(role):
 def analyze_zombie_products(df):
     """
     네이버 리포트 데이터프레임을 분석하여 '돈만 먹는 상품'을 식별합니다.
-    (컬럼명이 달라도 유연하게 찾도록 개선됨)
     """
     cols = df.columns
     
-    # 1. 비용 컬럼 찾기 (우선순위: 광고비(원) -> 총비용 -> 비용 -> salesAmt)
+    # [안전장치] 헤더가 데이터(날짜 등)로 인식된 경우 감지
+    first_col = str(cols[0])
+    if first_col.startswith('202') and len(first_col) == 8 and first_col.isdigit():
+        raise ValueError(
+            "🚨 파일에 '제목줄(Header)'이 없습니다.\n"
+            "현재 첫 번째 줄이 날짜 데이터로 인식됩니다.\n"
+            "파일 맨 윗줄에 [날짜, 노출수, 클릭수, 광고비, 전환매출액] 같은 제목을 추가하거나,\n"
+            "'실행실' 탭에서 리포트를 새로 추출해서 사용해 주세요."
+        )
+
+    # 1. 비용 컬럼 찾기 (우선순위: 광고비(원) -> salesAmt)
     cost_candidates = ['광고비(원)', '총비용(VAT포함)', '총비용', '비용', 'salesAmt']
     cost = next((c for c in cost_candidates if c in cols), None)
     
@@ -60,34 +69,24 @@ def analyze_zombie_products(df):
     # 필수 컬럼 검사
     if not all([cost, sales, imp, clk]):
         missing = []
-        if not cost: missing.append(f"비용(예: {cost_candidates})")
-        if not sales: missing.append(f"매출(예: {sales_candidates})")
+        if not cost: missing.append(f"비용 (예: {cost_candidates})")
+        if not sales: missing.append(f"매출 (예: {sales_candidates})")
         if not imp: missing.append("노출수")
         if not clk: missing.append("클릭수")
         
-        # 상세 에러 메시지 반환
         raise ValueError(
             f"필수 데이터 컬럼을 찾을 수 없습니다.\n"
             f"- 누락된 항목: {', '.join(missing)}\n"
-            f"- 현재 파일의 컬럼 목록: {list(cols)}"
+            f"- 현재 파일의 컬럼: {list(cols)}"
         )
 
     # 필터링 로직
-    # 조건 A: 돈은 많이 썼는데(5000원 이상) 매출이 0원
     cond_a = (df[cost] >= 5000) & (df[sales] == 0)
-    # 조건 B: 노출은 많이 됐는데(100회 이상) 클릭이 0회 (관심 밖)
     cond_b = (df[imp] >= 100) & (df[clk] == 0)
 
     zombies = df[cond_a | cond_b].copy()
     
-    # 결과 보기 좋게 정리 (선택 사항)
-    display_cols = [c for c in cols if c in [cost, sales, imp, clk, '캠페인ID', '키워드ID', '광고그룹ID', '키워드명']]
-    if not display_cols: display_cols = cols # 매칭 안되면 전체 출력
-    
-    return zombies[display_cols] if len(display_cols) > 0 else zombies
+    return zombies
 
 def generate_kill_list_filename():
-    """
-    살생부 파일 이름을 생성합니다.
-    """
     return f"Kill_List_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx"
