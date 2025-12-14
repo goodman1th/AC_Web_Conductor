@@ -14,7 +14,6 @@ def read_uploaded_file(uploaded_file):
         if ext in ['xlsx', 'xls']:
             df = pd.read_excel(uploaded_file)
         elif ext == 'csv':
-            # CSV는 인코딩 문제가 많으므로 utf-8, cp949 순차 시도
             try:
                 df = pd.read_csv(uploaded_file, encoding='utf-8')
             except UnicodeDecodeError:
@@ -26,7 +25,7 @@ def read_uploaded_file(uploaded_file):
         else:
             return f"[알림] {uploaded_file.name} 텍스트 변환 불가"
             
-        return f"[데이터 요약]\n크기: {df.shape}\n컬럼명: {list(df.columns)}\n상위 3행:\n{df.head(3).to_string()}"
+        return f"[데이터 요약]\n크기: {df.shape}\n상위 5행:\n{df.head(5).to_string()}"
     except Exception as e:
         return f"[파일 읽기 오류] {e}"
 
@@ -42,42 +41,45 @@ def get_system_prompt(role):
 
 def analyze_zombie_products(df):
     """
-    데이터프레임을 분석하여 좀비 상품을 찾습니다.
-    (헤더가 없거나 이름이 달라도 유연하게 대처)
+    데이터프레임의 '진짜 헤더'를 찾아서 좀비 상품을 분석합니다.
+    (밀림 현상 방지 로직 탑재)
     """
-    # 1. 컬럼명 정제 (공백 제거)
-    df.columns = [str(c).strip() for c in df.columns]
-    cols = df.columns.tolist()
+    
+    # -----------------------------------------------------------
+    # [Step 1] 진짜 제목줄(Header) 위치 찾기 (Header Sniffer)
+    # -----------------------------------------------------------
+    # 찾을 키워드 목록
+    target_keywords = ['광고비', '비용', 'salesAmt', '노출수', 'impCnt', '클릭수', 'clkCnt']
+    
+    header_idx = -1
+    
+    # 1-1. 현재 컬럼명에 키워드가 있는지 확인 (이미 정상인 경우)
+    current_cols = [str(c) for c in df.columns]
+    if any(k in str(c) for c in current_cols for k in target_keywords):
+        header_idx = -1 # 현재 상태가 정상
+    else:
+        # 1-2. 상위 10행을 뒤져서 키워드가 포함된 행 찾기
+        for i, row in df.head(10).iterrows():
+            row_str = " ".join([str(x) for x in row.values])
+            # 해당 행에 '광고비'나 '노출수' 같은 단어가 포함되어 있다면?
+            if any(k in row_str for k in target_keywords):
+                header_idx = i
+                break
+    
+    # 1-3. 헤더 교체 실행
+    if header_idx != -1:
+        st.info(f"💡 {header_idx+1}번째 줄에서 '진짜 제목'을 찾았습니다. 데이터를 정렬합니다.")
+        # 해당 행을 컬럼명으로 승격
+        df.columns = df.iloc[header_idx]
+        # 그 윗줄 데이터와 헤더행 자체를 삭제
+        df = df[header_idx+1:].reset_index(drop=True)
 
-    # 2. [헤더 누락 감지] 첫 번째 컬럼 이름이 날짜 숫자(예: 20251214)인 경우
-    first_col = str(cols[0])
-    if first_col.startswith('20') and len(first_col) == 8 and first_col.isdigit():
-        st.warning(f"🚨 파일에 제목줄이 없어 보입니다. (첫 행: {first_col})\n강제로 표준 헤더를 적용합니다.")
-        
-        # 현재 헤더로 인식된 첫 줄을 데이터로 내림
-        new_row = pd.DataFrame([cols], columns=cols)
-        df = pd.concat([new_row, df], ignore_index=True)
-        
-        # 표준 네이버 리포트 순서대로 컬럼명 강제 할당 (가장 흔한 14열 기준)
-        # 만약 열 개수가 다르면, 뒤에서부터 중요 데이터를 매칭함
-        if len(cols) >= 10:
-            # 임시 이름 부여
-            df.columns = [f"Col_{i}" for i in range(len(cols))]
-            # 뒤에서부터 매칭 (보통 끝부분에 지표가 있음)
-            rename_map = {
-                df.columns[-1]: '전환매출액(원)', # 맨 뒤
-                df.columns[-3]: '광고비(원)',     # 뒤에서 3번째
-                df.columns[-4]: '클릭수',         # 뒤에서 4번째
-                df.columns[-5]: '노출수',         # 뒤에서 5번째
-                df.columns[0]: '날짜'
-            }
-            df.rename(columns=rename_map, inplace=True)
-        else:
-            raise ValueError(f"데이터 열 개수가 너무 적습니다. ({len(cols)}개). 올바른 리포트인지 확인해주세요.")
-            
-        cols = df.columns.tolist() # 갱신
+    # -----------------------------------------------------------
+    # [Step 2] 컬럼 매핑 (유연한 검색)
+    # -----------------------------------------------------------
+    cols = [str(c).strip() for c in df.columns]
+    df.columns = cols # 공백 제거된 컬럼명 적용
 
-    # 3. 컬럼 찾기 (키워드 검색)
     def find_col(keywords):
         for col in cols:
             for kw in keywords:
@@ -90,29 +92,43 @@ def analyze_zombie_products(df):
     imp = find_col(['노출', 'impCnt', 'Imp'])
     clk = find_col(['클릭', 'clkCnt', 'Click'])
 
-    # 4. 필수 컬럼 검사 및 오류 보고
+    # -----------------------------------------------------------
+    # [Step 3] 필수 컬럼 검사
+    # -----------------------------------------------------------
     if not all([cost, sales, imp, clk]):
-        found_status = f"비용[{cost}] 매출[{sales}] 노출[{imp}] 클릭[{clk}]"
-        raise ValueError(
-            f"분석에 필요한 컬럼을 찾지 못했습니다.\n"
-            f"- 현재 인식된 컬럼 목록: {cols}\n"
-            f"- 매칭 현황: {found_status}\n"
-            f"- 해결책: 파일에 [광고비, 매출, 노출수, 클릭수] 제목이 있는지 확인하세요."
-        )
+        # 최후의 수단: 강제 할당 (헤더가 아예 없는 경우)
+        if len(cols) >= 10:
+            st.warning("⚠️ 제목줄을 찾지 못해 '표준 네이버 양식'으로 강제 매핑합니다.")
+            # 뒤에서부터 매칭
+            df.columns.values[-1] = '전환매출액(원)'
+            df.columns.values[-3] = '광고비(원)'
+            df.columns.values[-4] = '클릭수'
+            df.columns.values[-5] = '노출수'
+            
+            cost, sales, imp, clk = '광고비(원)', '전환매출액(원)', '노출수', '클릭수'
+        else:
+            raise ValueError(
+                f"데이터 구조 분석 실패.\n"
+                f"- 현재 인식된 컬럼: {cols}\n"
+                f"- 해결책: 엑셀 파일을 열어서 맨 윗줄에 [광고비, 매출, 노출수, 클릭수]가 있는지 확인하세요."
+            )
 
-    # 5. 데이터 타입 변환 (숫자로)
+    # -----------------------------------------------------------
+    # [Step 4] 데이터 정제 및 필터링
+    # -----------------------------------------------------------
+    # 숫자 변환 (콤마, 문자 제거)
     for c in [cost, sales, imp, clk]:
+        df[c] = df[c].astype(str).str.replace(',', '').str.replace(' ', '')
         df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
-    # 6. 필터링 (좀비 색출)
-    # 조건: 돈(5000원 이상) 썼는데 매출 0 OR 노출(100회 이상) 됐는데 클릭 0
-    cond_zombie = ((df[cost] >= 5000) & (df[sales] == 0)) | \
-                  ((df[imp] >= 100) & (df[clk] == 0))
+    # 좀비 조건
+    cond_a = (df[cost] >= 5000) & (df[sales] == 0)
+    cond_b = (df[imp] >= 100) & (df[clk] == 0)
 
-    zombies = df[cond_zombie].copy()
+    zombies = df[cond_a | cond_b].copy()
     
-    # 결과 컬럼 정리 (중요한 것만)
-    display_cols = [c for c in cols if c in [cost, sales, imp, clk] or 'ID' in c or '명' in c]
+    # 보기 좋게 컬럼 선택
+    display_cols = [c for c in cols if c in [cost, sales, imp, clk] or 'ID' in c or '명' in c or '날짜' in c]
     if not display_cols: display_cols = cols
     
     return zombies[display_cols]
